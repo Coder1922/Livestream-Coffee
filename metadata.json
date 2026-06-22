@@ -1,0 +1,6 @@
+{
+  "name": "Livestream Coffee",
+  "description": "Where Conversations Flow. A luxury coffee experience blending specialty brews, creative energy, and community inside Park Inn by Radisson, Surat.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

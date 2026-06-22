@@ -1,0 +1,122 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-brand-bg: #0D0D0D;
+  --color-brand-brown: #6F4E37;
+  --color-brand-cream: #F8F2EA;
+  --color-brand-gold: #D4A762;
+  --color-brand-grey: #A1A1A1;
+
+  --font-serif: "Playfair Display", "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Inter", "Manrope", system-ui, sans-serif;
+  --font-cormorant: "Cormorant Garamond", serif;
+  --font-manrope: "Manrope", sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: #0D0D0D;
+    color: #F8F2EA;
+    font-family: "Inter", "Manrope", sans-serif;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom coffee bean cursor styling */
+.cursor-bean {
+  width: 24px;
+  height: 24px;
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  transition: width 0.2s, height 0.2s;
+  will-change: transform;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0D0D0D;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #D4A762;
+}
+
+/* Animations & effects */
+@keyframes steam-float {
+  0% {
+    transform: translateY(0) translateX(0) scale(0.8);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-120px) translateX(25px) scale(1.4);
+    opacity: 0.6;
+  }
+  80% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateY(-240px) translateX(-10px) scale(2);
+    opacity: 0;
+  }
+}
+
+.steam-particle {
+  position: absolute;
+  bottom: 0;
+  background: radial-gradient(circle, rgba(248, 242, 230, 0.25) 0%, rgba(248, 242, 230, 0) 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(4px);
+}
+
+.animate-steam-1 {
+  animation: steam-float 8s infinite ease-out;
+}
+.animate-steam-2 {
+  animation: steam-float 10s infinite ease-out;
+  animation-delay: 2s;
+}
+.animate-steam-3 {
+  animation: steam-float 12s infinite ease-out;
+  animation-delay: 4.5s;
+}
+.animate-steam-4 {
+  animation: steam-float 9s infinite ease-out;
+  animation-delay: 7s;
+}
+
+/* Slow rotate or float for coffee beans */
+@keyframes float-slow {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-18px) rotate(12deg);
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 12s infinite ease-in-out;
+}
+
+.animate-float-slow-delay-1 {
+  animation: float-slow 15s infinite ease-in-out;
+  animation-delay: 2.5s;
+}
+
+.animate-float-slow-delay-2 {
+  animation: float-slow 18s infinite ease-in-out;
+  animation-delay: 5s;
+}
