@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import About from './components/About';
@@ -24,23 +24,24 @@ import { MenuItem, UserProfile, Order } from './types';
 import { FEATURED_MENU_ITEMS } from './data';
 import { ShoppingBag, ChevronUp, Bell, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { 
+  syncUsers, 
+  syncOrders, 
+  syncMenuItems, 
+  registerFirebaseUser, 
+  updateFirebaseUser, 
+  placeFirebaseOrder, 
+  updateFirebaseOrderStatus, 
+  saveFirebaseMenuItems 
+} from './firebase';
 
 export default function App() {
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(() => {
-    const saved = localStorage.getItem('LIVESTREAM_MENU_ITEMS');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse saved menu items, falling back to defaults.', e);
-      }
-    }
-    return FEATURED_MENU_ITEMS;
-  });
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(FEATURED_MENU_ITEMS);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
 
   // Membership & Portal states
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [registeredUsers, setRegisteredUsers] = useState<UserProfile[]>([]);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('LIVESTREAM_CURRENT_USER');
     if (saved) {
@@ -54,22 +55,52 @@ export default function App() {
   });
 
   // Orders registry state
-  const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem('LIVESTREAM_ORDERS');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse orders database records.', e);
+  const [orders, setOrders] = useState<Order[]>([]);
+
+  // Real-time synchronization with Firestore
+  useEffect(() => {
+    const unsubscribeUsers = syncUsers((syncedUsers) => {
+      setRegisteredUsers(syncedUsers);
+      localStorage.setItem('LIVESTREAM_REGISTERED_USERS', JSON.stringify(syncedUsers));
+    });
+    
+    const unsubscribeOrders = syncOrders((syncedOrders) => {
+      setOrders(syncedOrders);
+      localStorage.setItem('LIVESTREAM_ORDERS', JSON.stringify(syncedOrders));
+    });
+
+    const unsubscribeMenu = syncMenuItems(FEATURED_MENU_ITEMS, (syncedMenu) => {
+      setMenuItems(syncedMenu);
+      localStorage.setItem('LIVESTREAM_MENU_ITEMS', JSON.stringify(syncedMenu));
+    });
+
+    return () => {
+      unsubscribeUsers();
+      unsubscribeOrders();
+      unsubscribeMenu();
+    };
+  }, []);
+
+  // Sync current user session if their remote profile updates (like loyalty points increments)
+  useEffect(() => {
+    if (currentUser) {
+      const match = registeredUsers.find(u => u.phone === currentUser.phone);
+      if (match && JSON.stringify(match) !== JSON.stringify(currentUser)) {
+        setCurrentUser(match);
+        localStorage.setItem('LIVESTREAM_CURRENT_USER', JSON.stringify(match));
       }
     }
-    return [];
-  });
+  }, [registeredUsers, currentUser]);
 
   // Handle a guest or user login
   const handleLogin = (user: UserProfile) => {
     setCurrentUser(user);
     localStorage.setItem('LIVESTREAM_CURRENT_USER', JSON.stringify(user));
+    // Proactively register in database if not exists
+    const match = registeredUsers.find(u => u.phone === user.phone);
+    if (!match) {
+      registerFirebaseUser(user).catch((err) => console.error(err));
+    }
   };
 
   // Handle member logout
@@ -78,54 +109,35 @@ export default function App() {
     localStorage.removeItem('LIVESTREAM_CURRENT_USER');
   };
 
-  // Add new order to log context
+  // Add new order to log context (saved in Firebase)
   const handlePlaceOrder = (newOrder: Order) => {
-    setOrders((prev) => {
-      const next = [...prev, newOrder];
-      localStorage.setItem('LIVESTREAM_ORDERS', JSON.stringify(next));
-      return next;
+    placeFirebaseOrder(newOrder).catch((err) => {
+      console.error('Failed to save order to Firestore', err);
     });
   };
 
-  // Move order status node and grant loyalty points on delivery complete
-  const handleUpdateOrderStatus = (id: string, status: Order['status']) => {
-    setOrders((prev) => {
-      const updated = prev.map((order) => {
-        if (order.id === id) {
-          // If advancing to "Completed", credit loyalty points! (10 points per ₹100 spend value)
-          if (status === 'Completed' && order.status !== 'Completed' && order.status !== 'Cancelled') {
-            const pointsCredited = Math.floor(order.total / 10);
-            if (pointsCredited > 0) {
-              try {
-                const registeredRaw = localStorage.getItem('LIVESTREAM_REGISTERED_USERS');
-                const users = registeredRaw ? JSON.parse(registeredRaw) : [];
-                const idx = users.findIndex((u: any) => u.phone === order.userPhone);
-                if (idx > -1) {
-                  users[idx].loyaltyPoints = (users[idx].loyaltyPoints || 0) + pointsCredited;
-                  localStorage.setItem('LIVESTREAM_REGISTERED_USERS', JSON.stringify(users));
+  // Move order status node and grant loyalty points on delivery complete in Firestore
+  const handleUpdateOrderStatus = async (id: string, status: Order['status']) => {
+    try {
+      const order = orders.find((o) => o.id === id);
+      if (!order) return;
 
-                  // If this customer is currently logged on, live updates their points in session too!
-                  if (currentUser && currentUser.phone === order.userPhone) {
-                    const updatedSession = { 
-                      ...currentUser, 
-                      loyaltyPoints: (currentUser.loyaltyPoints || 0) + pointsCredited 
-                    };
-                    setCurrentUser(updatedSession);
-                    localStorage.setItem('LIVESTREAM_CURRENT_USER', JSON.stringify(updatedSession));
-                  }
-                }
-              } catch (e) {
-                console.error('Failed to audit and award user loyalty credit balance', e);
-              }
-            }
+      await updateFirebaseOrderStatus(id, status);
+
+      // If advancing to "Completed", credit loyalty points! (10 points per ₹100 spend value)
+      if (status === 'Completed' && order.status !== 'Completed' && order.status !== 'Cancelled') {
+        const pointsCredited = Math.floor(order.total / 10);
+        if (pointsCredited > 0) {
+          const userMatch = registeredUsers.find((u) => u.phone === order.userPhone);
+          if (userMatch) {
+            const updatedPoints = (userMatch.loyaltyPoints || 0) + pointsCredited;
+            await updateFirebaseUser(userMatch.id, { loyaltyPoints: updatedPoints });
           }
-          return { ...order, status };
         }
-        return order;
-      });
-      localStorage.setItem('LIVESTREAM_ORDERS', JSON.stringify(updated));
-      return updated;
-    });
+      }
+    } catch (e) {
+      console.error('Failed to update order status or grant loyalty points', e);
+    }
   };
 
   // Filter orders related to the logged in user phone
@@ -135,13 +147,15 @@ export default function App() {
   }, [orders, currentUser]);
 
   const handleSaveMenuItems = (newItems: MenuItem[]) => {
-    setMenuItems(newItems);
-    localStorage.setItem('LIVESTREAM_MENU_ITEMS', JSON.stringify(newItems));
+    saveFirebaseMenuItems(newItems).catch((err) => {
+      console.error('Failed to save menu items', err);
+    });
   };
 
   const handleResetToDefaults = () => {
-    localStorage.removeItem('LIVESTREAM_MENU_ITEMS');
-    setMenuItems(FEATURED_MENU_ITEMS);
+    saveFirebaseMenuItems(FEATURED_MENU_ITEMS).catch((err) => {
+      console.error('Failed to reset menu items', err);
+    });
   };
 
   const [cartQuantities, setCartQuantities] = useState<Record<string, number>>({});

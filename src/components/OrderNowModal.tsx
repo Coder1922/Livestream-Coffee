@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MenuItem, Order, UserProfile } from '../types';
-import { X, Trash2, ShoppingBag, ShoppingCart, User, Phone, Mail, AlertCircle, Check, Flame, Clock, Heart, Sparkles, MapPin, Star, MessageSquare } from 'lucide-react';
+import { X, Trash2, ShoppingBag, ShoppingCart, User, Phone, Mail, AlertCircle, Check, Flame, Clock, Heart, Sparkles, MapPin, Star, MessageSquare, CreditCard, QrCode, ShieldCheck, Smartphone } from 'lucide-react';
+import { registerFirebaseUser } from '../firebase';
 
 interface OrderNowModalProps {
   isOpen: boolean;
@@ -16,7 +17,7 @@ interface OrderNowModalProps {
   orders: Order[];
 }
 
-type OrderStage = 'form' | 'brewing' | 'complete' | 'cancelled';
+type OrderStage = 'form' | 'payment' | 'brewing' | 'complete' | 'cancelled';
 
 export default function OrderNowModal({
   isOpen,
@@ -38,6 +39,27 @@ export default function OrderNowModal({
   const [deliveryType, setDeliveryType] = useState<'pickup' | 'delivery'>('pickup');
   const [activeStep, setActiveStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+
+  // Payment portal states
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'UPI_QR' | 'CARD' | 'COUNTER'>('UPI_QR');
+  
+  // Card Details States
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
+  const [cardHolder, setCardHolder] = useState('');
+  const [cardError, setCardError] = useState('');
+  const [isCardFlipped, setIsCardFlipped] = useState(false);
+  
+  // Payment Progress States
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpError, setOtpError] = useState('');
+  const [otpSecondsLeft, setOtpSecondsLeft] = useState(60);
+  
+  // UPI QR states
+  const [upiCountdown, setUpiCountdown] = useState(180); // 3-minute QR countdown
 
   // Authentication sub-states for OrderNowModal Checkout Sign-in/Register fallback
   const [checkoutTab, setCheckoutTab] = useState<'login' | 'register'>('login');
@@ -114,6 +136,9 @@ export default function OrderNowModal({
     const users = getRegisteredUsers();
     users.push(user);
     localStorage.setItem('LIVESTREAM_REGISTERED_USERS', JSON.stringify(users));
+    registerFirebaseUser(user).catch((err) => {
+      console.error('Failed to register user to Firestore during checkout', err);
+    });
   };
 
   const validateEmail = (val: string) => {
@@ -210,10 +235,47 @@ export default function OrderNowModal({
     }
   };
 
+  // OTP dynamic countdown timer
+  useEffect(() => {
+    if (!otpSent || otpSecondsLeft <= 0) return;
+    const t = setInterval(() => {
+      setOtpSecondsLeft(prev => prev - 1);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [otpSent, otpSecondsLeft]);
+
+  // UPI QR active countdown timer
+  useEffect(() => {
+    if (stage !== 'payment' || selectedPaymentMethod !== 'UPI_QR' || upiCountdown <= 0 || paymentProcessing) return;
+    const t = setInterval(() => {
+      setUpiCountdown(prev => prev - 1);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [stage, selectedPaymentMethod, upiCountdown, paymentProcessing]);
+
+  // Transition form submissions to Payment Gateways
   const handlePlaceOrder = (e: React.FormEvent) => {
     e.preventDefault();
     if (!userName || !userPhone || orderTotal === 0) return;
+    setCardHolder(userName);
+    setCardNumber('');
+    setCardExpiry('');
+    setCardCvv('');
+    setOtpSent(false);
+    setOtpCode('');
+    setOtpSecondsLeft(60);
+    setCardError('');
+    setUpiCountdown(180);
+    setSelectedPaymentMethod('UPI_QR');
+    setStage('payment');
+  };
 
+  // Complete order placement upon successful mock checkout auth
+  const completeSuccessfulOrder = (
+    method: 'CARD' | 'UPI_QR' | 'COUNTER',
+    payStatus: 'Paid' | 'Pending',
+    reference?: string
+  ) => {
     setSubmitting(true);
 
     const cleanPhone = userPhone.replace(/[\s-]/g, '');
@@ -233,7 +295,10 @@ export default function OrderNowModal({
       total: orderTotal,
       status: 'Pending',
       createdAt: new Date().toISOString(),
-      deliveryType: deliveryType
+      deliveryType: deliveryType,
+      paymentMethod: method,
+      paymentStatus: payStatus,
+      paymentReference: reference
     };
 
     // Save and cache to local storage
@@ -278,9 +343,20 @@ export default function OrderNowModal({
         {/* Header Block */}
         <div className="p-6 border-b border-brand-cream/10 flex items-center justify-between bg-[#151515]">
           <div className="flex items-center gap-2">
-            <ShoppingBag className="w-5 h-5 text-brand-gold" />
+            {stage === 'payment' ? (
+              <button
+                type="button"
+                onClick={() => setStage('form')}
+                className="mr-2 px-2.5 py-1 text-xs font-mono font-bold text-brand-gold bg-brand-gold/10 hover:bg-brand-gold/20 border border-brand-gold/25 rounded-md transition-all flex items-center gap-1 cursor-pointer"
+              >
+                ← Back
+              </button>
+            ) : (
+              <ShoppingBag className="w-5 h-5 text-brand-gold" />
+            )}
             <h3 className="text-xl font-serif font-semibold text-brand-cream tracking-wide">
               {stage === 'form' && 'Review Your Order'}
+              {stage === 'payment' && 'Secure Portal Payment'}
               {stage === 'brewing' && (
                 hasDrinks && hasFood ? 'Preparing Your Order' :
                 hasFood ? 'Preparing Your Food' :
@@ -651,6 +727,470 @@ export default function OrderNowModal({
                      )}
                   </>
                 )}
+              </motion.div>
+            )}
+
+            {/* STAGE: SECURE PAYMENT GATEWAY */}
+            {stage === 'payment' && (
+              <motion.div
+                key="payment"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {/* Visual Gateway Header */}
+                <div className="flex flex-col items-center text-center space-y-1.5 pb-2">
+                  <div className="w-12 h-12 bg-brand-gold/10 text-brand-gold border border-brand-gold/25 rounded-full flex items-center justify-center mb-1">
+                    <ShieldCheck className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <h4 className="text-xs font-mono tracking-widest uppercase text-brand-gold font-bold">
+                    Secure Luxury Gateway
+                  </h4>
+                  <p className="text-[11px] text-[#a1a1a1]">
+                    Complete secure billing of <span className="text-brand-gold font-bold">₹{orderTotal}</span> via Livestream Gourmet portal
+                  </p>
+                </div>
+
+                {/* Secure Tabs Selection */}
+                <div className="grid grid-cols-3 p-1 bg-[#141414] rounded-xl border border-brand-cream/10 select-none">
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedPaymentMethod('UPI_QR'); setOtpSent(false); setCardError(''); }}
+                    className={`py-2 px-1 rounded-lg text-[9px] font-mono uppercase tracking-wider flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                      selectedPaymentMethod === 'UPI_QR'
+                        ? 'bg-brand-gold text-brand-bg font-bold shadow-md'
+                        : 'text-[#a1a1a1] hover:text-brand-cream'
+                    }`}
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>UPI QR Scan</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedPaymentMethod('CARD'); setOtpSent(false); setCardError(''); }}
+                    className={`py-2 px-1 rounded-lg text-[9px] font-mono uppercase tracking-wider flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                      selectedPaymentMethod === 'CARD'
+                        ? 'bg-brand-gold text-brand-bg font-bold shadow-md'
+                        : 'text-[#a1a1a1] hover:text-brand-cream'
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span>Credit Card</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedPaymentMethod('COUNTER'); setOtpSent(false); setCardError(''); }}
+                    className={`py-2 px-1 rounded-lg text-[9px] font-mono uppercase tracking-wider flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                      selectedPaymentMethod === 'COUNTER'
+                        ? 'bg-brand-gold text-brand-bg font-bold shadow-md'
+                        : 'text-[#a1a1a1] hover:text-brand-cream'
+                    }`}
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    <span>Lobby Counter</span>
+                  </button>
+                </div>
+
+                {/* Sub-Views */}
+                <div className="min-h-[220px]">
+                  
+                  {/* VIEW A: UPI SCANNER QR CODE */}
+                  {selectedPaymentMethod === 'UPI_QR' && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="space-y-4 text-center py-2"
+                    >
+                      {/* Interactive High-Fidelity Scan Engine */}
+                      <div className="w-40 h-40 bg-black/40 border border-brand-gold/25 p-3 rounded-2xl relative mx-auto overflow-hidden shadow-2xl flex items-center justify-center animate-pulse">
+                        {/* Scanning lasers panel */}
+                        <div className="absolute left-0 right-0 h-0.5 bg-brand-gold/60 animate-[bounce_2.5s_infinite] shadow-[0_0_8px_rgba(235,191,114,0.7)] z-10" />
+                        
+                        {/* Static QR pattern display elements */}
+                        <div className="w-full h-full grid grid-cols-6 gap-1 opacity-90 p-2 bg-[#121212] rounded-lg">
+                          {[...Array(36)].map((_, i) => {
+                            const isAnchor = 
+                              (i < 2 && i % 6 < 2) || // top-left
+                              (i < 6 && i % 6 >= 4 && i < 12) || // top-right
+                              (i >= 24 && i % 6 < 2 && i < 36); // bottom-left
+                            return (
+                              <div
+                                key={i}
+                                className={`rounded transition-colors duration-500 ${
+                                  isAnchor
+                                    ? 'bg-brand-gold border-2 border-brand-bg'
+                                    : (i * 7) % 3 === 0
+                                    ? 'bg-brand-gold'
+                                    : 'bg-[#181818]'
+                                }`}
+                              />
+                            );
+                          })}
+                        </div>
+                        {/* Center gold coffee cup decoration */}
+                        <div className="absolute inset-0 m-auto w-10 h-10 rounded-xl bg-[#121212] border border-brand-gold/40 flex items-center justify-center shadow-lg">
+                          <Flame className="w-4.5 h-4.5 text-brand-gold" />
+                        </div>
+                      </div>
+
+                      {/* Instructions */}
+                      <div className="space-y-1">
+                        <span className="block text-[11px] font-mono text-[#a1a1a1]">
+                          UPI ID: <strong className="text-brand-cream">livestream.surat@okaxis</strong>
+                        </span>
+                        <span className="block text-[10px] text-neutral-500 font-mono">
+                          Expires in: <span className="text-brand-gold font-bold">
+                            {Math.floor(upiCountdown / 60)}:{(upiCountdown % 60).toString().padStart(2, '0')}
+                          </span>
+                        </span>
+                      </div>
+
+                      <div className="p-3 bg-[#151515] border border-brand-gold/10 rounded-xl text-left max-w-sm mx-auto space-y-1">
+                        <p className="text-[10px] font-mono text-brand-gold uppercase tracking-wider flex items-center gap-1.5 font-bold">
+                          <span>💡 UPI SIMULATOR ACTIVE</span>
+                        </p>
+                        <p className="text-[10px] text-[#888888] font-manrope font-light leading-relaxed">
+                          Scan with BHIM, GPay, Paytm or PhonePe. To finish payment instantly, trigger our high-fidelity clearance simulator below.
+                        </p>
+                      </div>
+
+                      {/* Simulation Trigger Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentProcessing(true);
+                          setTimeout(() => {
+                            completeSuccessfulOrder(
+                              'UPI_QR',
+                              'Paid',
+                              `UPI-TXN-${Math.random().toString(36).substring(2, 10).toUpperCase()}`
+                            );
+                            setPaymentProcessing(false);
+                          }, 1500);
+                        }}
+                        disabled={paymentProcessing}
+                        className="w-full py-3 px-4 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg font-mono text-xs uppercase tracking-widest font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                      >
+                        {paymentProcessing ? (
+                          <>
+                            <span className="w-4 h-4 border-2 border-brand-bg border-t-transparent rounded-full animate-spin" />
+                            <span>CLEARING UPI CHANNELS...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-4 h-4" />
+                            <span>Simulate UPI Payment Scan</span>
+                          </>
+                        )}
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {/* VIEW B: CARD BILLING MODULE */}
+                  {selectedPaymentMethod === 'CARD' && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="space-y-4"
+                    >
+                      {/* Card graphics */}
+                      <div className="relative w-full max-w-xs h-36 mx-auto rounded-xl overflow-hidden shadow-2xl">
+                        {!isCardFlipped ? (
+                          <div className="w-full h-full bg-gradient-to-br from-[#1b1b1b] via-[#101010] to-[#252525] border border-brand-gold/30 p-4.5 rounded-xl flex flex-col justify-between">
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] font-mono tracking-widest text-[#a1a1a1] uppercase">
+                                Radisson Gold Elite
+                              </span>
+                              <Flame className="w-5 h-5 text-brand-gold" />
+                            </div>
+                            
+                            {/* Smart Chip Graphic */}
+                            <div className="w-8 h-6 rounded bg-gradient-to-r from-amber-400 to-amber-200 opacity-85 border border-brand-gold/30" />
+
+                            <div>
+                              {/* Card Number display */}
+                              <div className="text-sm font-mono text-brand-gold tracking-[0.2em] h-5">
+                                {cardNumber ? cardNumber.replace(/(\d{4})/g, '$1 ').trim().slice(0, 19) : '•••• •••• •••• ••••'}
+                              </div>
+
+                              <div className="flex justify-between items-end mt-1">
+                                <div>
+                                  <span className="block text-[6px] text-neutral-500 font-mono uppercase">Card Holder</span>
+                                  <span className="text-[10px] font-mono text-brand-cream uppercase tracking-wider block truncate max-w-[120px]">
+                                    {cardHolder || 'GUEST MEMBER'}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="block text-[6px] text-neutral-500 font-mono uppercase">Expires</span>
+                                  <span className="text-[10px] font-mono text-brand-cream block">
+                                    {cardExpiry || 'MM/YY'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-[#121212] to-[#1a1a1a] border border-brand-gold/30 rounded-xl flex flex-col justify-between py-4">
+                            <div className="w-full h-8 bg-black" />
+                            
+                            <div className="px-4.5 flex justify-end">
+                              <div className="flex items-center gap-1.5">
+                                <div className="text-[6px] italic font-mono text-[#888] select-none">
+                                  X-Auth Signature
+                                </div>
+                                <div className="px-2 py-1 bg-white text-black font-mono font-bold text-[10px] rounded tracking-wider leading-none">
+                                  {cardCvv || '•••'}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="px-4 text-[6px] text-[#555] font-mono leading-none">
+                              Radisson Elite System Premium Reserve. Authorized signature only.
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* CONDITIONAL SUBVIEW: OTP CONFIRMATION MODE */}
+                      {otpSent ? (
+                        <div className="space-y-4 p-4 bg-[#141414] border border-brand-gold/15 rounded-xl">
+                          <div className="text-center space-y-1">
+                            <span className="inline-block px-2 py-0.5 rounded bg-brand-gold/10 text-brand-gold font-mono text-[9px] uppercase tracking-wider">
+                              🔒 3D Secure Authorization Active
+                            </span>
+                            <p className="text-[10px] text-[#999999] font-manrope">
+                              Verify OTP code sent to +91 ******{userPhone.slice(-4) || 'XXXX'}
+                            </p>
+                          </div>
+
+                          {otpError && (
+                            <div className="text-[10px] font-mono text-red-400 bg-red-950/20 border border-red-500/20 p-2 rounded text-center">
+                              ⚠️ {otpError}
+                            </div>
+                          )}
+
+                          <div className="flex gap-2 justify-center max-w-xs mx-auto">
+                            <input
+                              type="text"
+                              maxLength={6}
+                              placeholder="e.g. 123456"
+                              value={otpCode}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/\D/g, '');
+                                if (val.length <= 6) setOtpCode(val);
+                              }}
+                              className="w-full p-2.5 bg-[#181818] border border-brand-cream/15 text-center text-brand-cream text-lg font-mono font-bold tracking-widest rounded-lg focus:outline-none focus:border-brand-gold"
+                            />
+                          </div>
+
+                          <div className="text-center">
+                            <button
+                              type="button"
+                              disabled={otpSecondsLeft > 0}
+                              onClick={() => { setOtpSecondsLeft(60); setOtpCode(''); }}
+                              className="text-[10px] font-mono text-[#666] hover:text-brand-gold disabled:text-neutral-700 transition"
+                            >
+                              {otpSecondsLeft > 0 ? `Resend OTP code in ${otpSecondsLeft}s` : 'Resend OTP Verification SMS'}
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (otpCode.length !== 6) {
+                                setOtpError('Authorization code must equal exactly 6 digits.');
+                                return;
+                              }
+                              setPaymentProcessing(true);
+                              setOtpError('');
+                              setTimeout(() => {
+                                completeSuccessfulOrder(
+                                  'CARD',
+                                  'Paid',
+                                  `CRD-AUTH-${Math.random().toString(36).substring(2, 10).toUpperCase()}`
+                                );
+                                setPaymentProcessing(false);
+                              }, 1500);
+                            }}
+                            disabled={paymentProcessing}
+                            className="w-full py-3 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg font-mono text-xs uppercase tracking-widest font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow"
+                          >
+                            {paymentProcessing ? (
+                              <>
+                                <span className="w-4 h-4 border-2 border-brand-bg border-t-transparent rounded-full animate-spin" />
+                                <span>VERIFYING DIRECT CREDIT CHARGES...</span>
+                              </>
+                            ) : (
+                              <span>Submit OTP & Authenticate Payment</span>
+                            )}
+                          </button>
+                        </div>
+                      ) : (
+                        /* CARD ENTRY DETAILS */
+                        <div className="space-y-3.5">
+                          {cardError && (
+                            <div className="text-[10px] font-mono text-red-400 bg-red-950/20 border border-red-500/20 p-2 rounded text-center">
+                              ⚠️ {cardError}
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 gap-3">
+                            <div>
+                              <label className="block text-[8px] font-mono uppercase tracking-widest text-brand-gold mb-1">
+                                Cardholder Full Name
+                              </label>
+                              <input
+                                type="text"
+                                value={cardHolder}
+                                placeholder="e.g. ROHINI MEHTA"
+                                onChange={(e) => setCardHolder(e.target.value.replace(/[^a-zA-Z\s]/g, '').toUpperCase())}
+                                className="w-full px-3 py-2 bg-[#141414] border border-brand-cream/10 text-brand-cream text-xs rounded-lg focus:outline-none focus:border-brand-gold font-mono"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[8px] font-mono uppercase tracking-widest text-brand-gold mb-1">
+                                Credit / Debit Card Number
+                              </label>
+                              <input
+                                type="text"
+                                maxLength={19}
+                                placeholder="e.g. 4532 9876 5432 1098"
+                                value={cardNumber ? cardNumber.replace(/(\d{4})/g, '$1 ').trim().slice(0, 19) : ''}
+                                onChange={(e) => {
+                                  const val = e.target.value.replace(/\s+/g, '').replace(/\D/g, '');
+                                  if (val.length <= 16) {
+                                    setCardNumber(val);
+                                  }
+                                }}
+                                className="w-full px-3 py-2 bg-[#141414] border border-brand-cream/10 text-brand-cream text-xs rounded-lg focus:outline-none focus:border-brand-gold font-mono"
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[8px] font-mono uppercase tracking-widest text-brand-gold mb-1">
+                                  Expiration (MM/YY)
+                                </label>
+                                <input
+                                  type="text"
+                                  maxLength={5}
+                                  placeholder="MM/YY"
+                                  value={cardExpiry}
+                                  onChange={(e) => {
+                                    let val = e.target.value.replace(/\s+/g, '').replace(/\D/g, '');
+                                    if (val.length > 2) {
+                                      val = val.slice(0, 2) + '/' + val.slice(2, 4);
+                                    }
+                                    setCardExpiry(val);
+                                  }}
+                                  className="w-full px-3 py-2 bg-[#141414] border border-brand-cream/10 text-[#f1f1f1] text-xs rounded-lg focus:outline-none focus:border-brand-gold font-mono text-center"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[8px] font-mono uppercase tracking-widest text-brand-gold mb-1">
+                                  Security CVV Code
+                                </label>
+                                <input
+                                  type="password"
+                                  maxLength={3}
+                                  placeholder="•••"
+                                  value={cardCvv}
+                                  onFocus={() => setIsCardFlipped(true)}
+                                  onBlur={() => setIsCardFlipped(false)}
+                                  onChange={(e) => {
+                                    const val = e.target.value.replace(/\D/g, '');
+                                    if (val.length <= 3) {
+                                      setCardCvv(val);
+                                    }
+                                  }}
+                                  className="w-full px-3 py-2 bg-[#141414] border border-brand-cream/10 text-[#f1f1f1] text-xs rounded-lg focus:outline-none focus:border-brand-gold font-mono text-center"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Perform standard validation
+                              if (!cardHolder.trim()) {
+                                setCardError('Cardholder name is required.');
+                                return;
+                              }
+                              if (cardNumber.length < 16) {
+                                setCardError('Please enter a valid 16-digit credit card number.');
+                                return;
+                              }
+                              if (!/^\d{2}\/\d{2}$/.test(cardExpiry)) {
+                                setCardError('Please use expiration date format MM/YY.');
+                                return;
+                              }
+                              if (cardCvv.length < 3) {
+                                setCardError('Card verification CVV must equal 3 digits.');
+                                return;
+                              }
+                              // Success validation, send OTP simulation
+                              setCardError('');
+                              setOtpSent(true);
+                              setOtpCode('');
+                              setOtpSecondsLeft(60);
+                            }}
+                            className="w-full py-3 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg font-mono text-xs uppercase tracking-widest font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow"
+                          >
+                            <CreditCard className="w-4 h-4" />
+                            <span>Request Secure SMS OTP (₹{orderTotal})</span>
+                          </button>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+
+                  {/* VIEW C: COUNTER RESERVATION CHECKOUT */}
+                  {selectedPaymentMethod === 'COUNTER' && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="space-y-4 text-center py-4"
+                    >
+                      <div className="w-16 h-16 bg-[#161616] border border-brand-gold/20 rounded-full flex items-center justify-center mx-auto text-brand-gold text-2xl font-serif">
+                        🏨
+                      </div>
+
+                      <div className="space-y-2 max-w-sm mx-auto">
+                        <h4 className="text-sm font-serif font-bold text-brand-cream">
+                          Radisson Lounge Counter / Pay on Delivery
+                        </h4>
+                        <p className="text-xs text-[#a1a1a1] leading-relaxed font-manrope font-light">
+                          Perfect for guests checked in at Radisson or visitors seated in the main premium lobby. Skip digital checkout and pay via Cash, Lounge Card, or room tag bill charges during pick up.
+                        </p>
+                      </div>
+
+                      <div className="p-3 bg-neutral-900 border border-brand-cream/5 rounded-xl text-left max-w-sm mx-auto">
+                        <span className="block text-[10px] font-mono text-brand-gold uppercase tracking-wider font-bold mb-1">
+                          📋 SEAMLESS INTEGRATION ACTIVE
+                        </span>
+                        <p className="text-[9px] text-[#777777] font-mono leading-relaxed">
+                          Your reservation will be synced immediately to the master system kitchen queue queue. An invoice reference will print out at the main grill desk.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          completeSuccessfulOrder('COUNTER', 'Pending', 'LOBBY-INV-' + Math.floor(Math.random() * 100000));
+                        }}
+                        className="w-full py-3 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg font-mono text-xs uppercase tracking-widest font-bold rounded-lg transition-colors cursor-pointer text-center font-bold"
+                      >
+                        Queue Reservation & Pay at Lobby
+                      </button>
+                    </motion.div>
+                  )}
+                </div>
               </motion.div>
             )}
 

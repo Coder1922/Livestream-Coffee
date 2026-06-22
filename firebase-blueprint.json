@@ -1,0 +1,155 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Represents a registered guest/member user profile.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "loyaltyPoints": {
+          "type": "number"
+        }
+      },
+      "required": ["id", "name", "phone", "email", "loyaltyPoints"]
+    },
+    "OrderItem": {
+      "title": "OrderItem",
+      "description": "Represents an individual food/beverage item in an order.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "price": {
+          "type": "number"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["specialty", "frappe", "food"]
+        },
+        "specialInstructions": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "price", "quantity", "category", "image"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Represents a coffee or grill order placed by a guest.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "userName": {
+          "type": "string"
+        },
+        "userPhone": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array"
+        },
+        "total": {
+          "type": "number"
+        },
+        "deliveryType": {
+          "type": "string",
+          "enum": ["pickup", "delivery"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Pending", "Received", "Brewing", "Ready", "Completed", "Cancelled"]
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "specialInstructions": {
+          "type": "object"
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["UPI_QR", "CARD", "COUNTER"]
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["Pending", "Paid", "Failed"]
+        },
+        "paymentReference": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "userName", "userPhone", "items", "total", "deliveryType", "status", "createdAt"]
+    },
+    "MenuItem": {
+      "title": "MenuItem",
+      "description": "Represents a luxury gourmet beverage or food item in the catalog.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["specialty", "frappe", "food"]
+        },
+        "subcategory": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "price": {
+          "type": "number"
+        },
+        "tags": {
+          "type": "array"
+        },
+        "image": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "category", "description", "price", "image"]
+    }
+  },
+  "firestore": {
+    "livestream_users/{userId}": {
+      "schema": "UserProfile",
+      "description": "The collection of registered guest/member user profiles."
+    },
+    "livestream_orders/{orderId}": {
+      "schema": "Order",
+      "description": "The collection of coffee and grill orders."
+    },
+    "livestream_menu/{menuItemId}": {
+      "schema": "MenuItem",
+      "description": "The collection of custom luxury food & drink menu catalog items."
+    }
+  }
+}

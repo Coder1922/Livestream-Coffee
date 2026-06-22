@@ -4,6 +4,7 @@ import { UserProfile, Order } from '../types';
 import { 
   X, User, Phone, Mail, Award, Clock, History, LogOut, Check, AlertCircle, ShoppingBag, MapPin, ShieldCheck, CreditCard, Flame 
 } from 'lucide-react';
+import { registerFirebaseUser } from '../firebase';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -41,6 +42,9 @@ export default function UserProfileModal({
     const users = getRegisteredUsers();
     users.push(user);
     localStorage.setItem('LIVESTREAM_REGISTERED_USERS', JSON.stringify(users));
+    registerFirebaseUser(user).catch((err) => {
+      console.error('Failed to register user to Firestore', err);
+    });
   };
 
   const validateEmail = (val: string) => {

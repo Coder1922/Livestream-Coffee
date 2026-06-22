@@ -559,9 +559,38 @@ export default function AdminPanel({
                                   )}
                                 </span>
                                 <span className="font-mono font-bold text-brand-gold text-sm">
-                                  Collect Total: ₹{order.total}
+                                  Total: ₹{order.total}
                                 </span>
                               </div>
+
+                              <div className="mt-3.5 pt-2 message-panel border-t border-brand-cream/5 flex justify-between items-center text-[10px] font-mono leading-none">
+                                <span className="text-[#777] uppercase tracking-wider">Payment Transaction:</span>
+                                <div className="flex gap-1.5 items-center">
+                                  <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${
+                                    order.paymentMethod === 'CARD'
+                                      ? 'text-cyan-400 bg-cyan-400/10 border-cyan-400/20'
+                                      : order.paymentMethod === 'UPI_QR'
+                                      ? 'text-purple-400 bg-purple-400/15 border-purple-400/20'
+                                      : 'text-amber-500 bg-amber-500/10 border-amber-500/15'
+                                  }`}>
+                                    {order.paymentMethod ? order.paymentMethod.replace('_', ' ') : 'COUNTER'}
+                                  </span>
+                                  <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${
+                                    order.paymentStatus === 'Paid'
+                                      ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20'
+                                      : order.paymentStatus === 'Failed'
+                                      ? 'text-rose-500 bg-rose-500/10 border-rose-500/15'
+                                      : 'text-amber-500 bg-amber-500/10 border-amber-500/15'
+                                  }`}>
+                                    {order.paymentStatus || 'Pending'}
+                                  </span>
+                                </div>
+                              </div>
+                              {order.paymentReference && (
+                                <div className="mt-1 text-right text-[8px] font-mono text-neutral-500 tracking-tight">
+                                  Ref: {order.paymentReference}
+                                </div>
+                              )}
                             </div>
 
                             {/* Column 3: Active Status Changer controls */}

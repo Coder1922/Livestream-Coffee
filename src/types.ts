@@ -77,5 +77,8 @@ export interface Order {
   status: 'Pending' | 'Received' | 'Brewing' | 'Ready' | 'Completed' | 'Cancelled';
   createdAt: string;
   specialInstructions?: Record<string, string>;
+  paymentMethod?: 'UPI_QR' | 'CARD' | 'COUNTER';
+  paymentStatus?: 'Pending' | 'Paid' | 'Failed';
+  paymentReference?: string;
 }
 
