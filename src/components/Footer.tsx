@@ -6,9 +6,10 @@ interface FooterProps {
   onScrollToVisit: () => void;
   onScrollToTop: () => void;
   onOpenOrderModal: () => void;
+  onOpenAdmin: () => void;
 }
 
-export default function Footer({ onScrollToVisit, onScrollToTop, onOpenOrderModal }: FooterProps) {
+export default function Footer({ onScrollToVisit, onScrollToTop, onOpenOrderModal, onOpenAdmin }: FooterProps) {
   return (
     <footer id="footer" className="relative bg-[#070707] text-brand-cream overflow-hidden">
       
@@ -107,8 +108,15 @@ export default function Footer({ onScrollToVisit, onScrollToTop, onOpenOrderModa
 
         {/* Bottom micro copyright notes */}
         <div className="mt-12 pt-8 border-t border-brand-cream/5 flex flex-col sm:flex-row justify-between items-center gap-4 text-[10px] text-brand-cream/40 font-mono tracking-widest uppercase">
-          <div>
-            &copy; {new Date().getFullYear()} LIVESTREAM COFFEE SURAT. ALL RIGHTS RESERVED.
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
+            <span>&copy; {new Date().getFullYear()} LIVESTREAM COFFEE SURAT. ALL RIGHTS RESERVED.</span>
+            <span className="text-brand-cream/20 hidden sm:inline">|</span>
+            <button
+              onClick={onOpenAdmin}
+              className="hover:text-brand-gold transition-colors duration-200 underline decoration-brand-gold/30 underline-offset-4 cursor-pointer font-sans normal-case tracking-normal font-light text-[11px]"
+            >
+              Staff Portal
+            </button>
           </div>
           <div className="flex gap-4">
             <span>GROUND FLOOR, PARK INN BY RADISSON</span>

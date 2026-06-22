@@ -1,15 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Coffee, Menu, X, ShoppingCart, Star, Clock, Heart, Lock } from 'lucide-react';
+import { Coffee, Menu, X, ShoppingCart, Star, Clock, Heart, Lock, User } from 'lucide-react';
+import { UserProfile } from '../types';
 
 interface NavbarProps {
   onScrollToSection: (sectionId: string) => void;
   cartCount: number;
   onOpenOrderModal: () => void;
   onOpenAdmin: () => void;
+  onOpenProfile: () => void;
+  currentUser: UserProfile | null;
 }
 
-export default function Navbar({ onScrollToSection, cartCount, onOpenOrderModal, onOpenAdmin }: NavbarProps) {
+export default function Navbar({ 
+  onScrollToSection, 
+  cartCount, 
+  onOpenOrderModal, 
+  onOpenAdmin,
+  onOpenProfile,
+  currentUser
+}: NavbarProps) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [shopOpen, setShopOpen] = useState(true);
@@ -116,13 +126,13 @@ export default function Navbar({ onScrollToSection, cartCount, onOpenOrderModal,
             )}
           </button>
 
-          {/* Admin Panel control button */}
+          {/* Gourmet Member Portal Button */}
           <button
-            onClick={onOpenAdmin}
-            className="px-4 py-2 bg-brand-gold/10 hover:bg-brand-gold/20 border border-brand-gold/30 text-brand-gold rounded-full font-mono text-[10px] uppercase tracking-widest font-semibold transition-all flex items-center gap-1.5 cursor-pointer hover:shadow-lg"
+            onClick={onOpenProfile}
+            className="px-4 py-2 bg-brand-gold/15 hover:bg-brand-gold/25 border border-brand-gold/40 text-brand-gold rounded-full font-mono text-[10px] uppercase tracking-widest font-semibold transition-all flex items-center gap-1.5 cursor-pointer hover:shadow-lg"
           >
-            <Lock className="w-3 h-3 text-brand-gold" />
-            <span>Admin</span>
+            <User className="w-3.5 h-3.5" />
+            <span>{currentUser ? currentUser.name.split(' ')[0] : 'Sign In'}</span>
           </button>
         </nav>
 
@@ -187,22 +197,22 @@ export default function Navbar({ onScrollToSection, cartCount, onOpenOrderModal,
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
-                  onOpenOrderModal();
+                  onOpenProfile();
                 }}
-                className="py-3 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg font-bold rounded-lg transition-colors cursor-pointer text-xs font-mono tracking-wider"
+                className="py-3 bg-brand-gold/10 hover:bg-brand-gold/20 border-2 border-brand-gold/40 text-brand-gold font-bold rounded-lg transition-colors cursor-pointer text-xs font-mono tracking-wider flex items-center justify-center gap-2"
               >
-                Checkout Cart Orders ({cartCount})
+                <User className="w-4 h-4 text-brand-gold" />
+                <span>{currentUser ? `HELLO, ${currentUser.name.toUpperCase()}` : 'GOURMET MEMBER SIGN IN'}</span>
               </button>
 
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
-                  onOpenAdmin();
+                  onOpenOrderModal();
                 }}
-                className="py-3 bg-[#111111] hover:bg-[#181818] border border-brand-gold/30 text-brand-gold font-bold rounded-lg transition-colors cursor-pointer text-xs font-mono tracking-wider flex items-center justify-center gap-2"
+                className="py-3 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg font-bold rounded-lg transition-colors cursor-pointer text-xs font-mono tracking-wider"
               >
-                <Lock className="w-4 h-4 text-brand-gold" />
-                <span>ADMIN CONTROL CENTER</span>
+                Checkout Cart Orders ({cartCount})
               </button>
             </div>
           </motion.div>

@@ -19,7 +19,8 @@ import Footer from './components/Footer';
 import OrderNowModal from './components/OrderNowModal';
 import CustomCursor from './components/CustomCursor';
 import AdminPanel from './components/AdminPanel';
-import { MenuItem } from './types';
+import UserProfileModal from './components/UserProfileModal';
+import { MenuItem, UserProfile, Order } from './types';
 import { FEATURED_MENU_ITEMS } from './data';
 import { ShoppingBag, ChevronUp, Bell, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -37,6 +38,101 @@ export default function App() {
     return FEATURED_MENU_ITEMS;
   });
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+
+  // Membership & Portal states
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    const saved = localStorage.getItem('LIVESTREAM_CURRENT_USER');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to parse saved login session.', e);
+      }
+    }
+    return null;
+  });
+
+  // Orders registry state
+  const [orders, setOrders] = useState<Order[]>(() => {
+    const saved = localStorage.getItem('LIVESTREAM_ORDERS');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to parse orders database records.', e);
+      }
+    }
+    return [];
+  });
+
+  // Handle a guest or user login
+  const handleLogin = (user: UserProfile) => {
+    setCurrentUser(user);
+    localStorage.setItem('LIVESTREAM_CURRENT_USER', JSON.stringify(user));
+  };
+
+  // Handle member logout
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('LIVESTREAM_CURRENT_USER');
+  };
+
+  // Add new order to log context
+  const handlePlaceOrder = (newOrder: Order) => {
+    setOrders((prev) => {
+      const next = [...prev, newOrder];
+      localStorage.setItem('LIVESTREAM_ORDERS', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // Move order status node and grant loyalty points on delivery complete
+  const handleUpdateOrderStatus = (id: string, status: Order['status']) => {
+    setOrders((prev) => {
+      const updated = prev.map((order) => {
+        if (order.id === id) {
+          // If advancing to "Completed", credit loyalty points! (10 points per ₹100 spend value)
+          if (status === 'Completed' && order.status !== 'Completed' && order.status !== 'Cancelled') {
+            const pointsCredited = Math.floor(order.total / 10);
+            if (pointsCredited > 0) {
+              try {
+                const registeredRaw = localStorage.getItem('LIVESTREAM_REGISTERED_USERS');
+                const users = registeredRaw ? JSON.parse(registeredRaw) : [];
+                const idx = users.findIndex((u: any) => u.phone === order.userPhone);
+                if (idx > -1) {
+                  users[idx].loyaltyPoints = (users[idx].loyaltyPoints || 0) + pointsCredited;
+                  localStorage.setItem('LIVESTREAM_REGISTERED_USERS', JSON.stringify(users));
+
+                  // If this customer is currently logged on, live updates their points in session too!
+                  if (currentUser && currentUser.phone === order.userPhone) {
+                    const updatedSession = { 
+                      ...currentUser, 
+                      loyaltyPoints: (currentUser.loyaltyPoints || 0) + pointsCredited 
+                    };
+                    setCurrentUser(updatedSession);
+                    localStorage.setItem('LIVESTREAM_CURRENT_USER', JSON.stringify(updatedSession));
+                  }
+                }
+              } catch (e) {
+                console.error('Failed to audit and award user loyalty credit balance', e);
+              }
+            }
+          }
+          return { ...order, status };
+        }
+        return order;
+      });
+      localStorage.setItem('LIVESTREAM_ORDERS', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Filter orders related to the logged in user phone
+  const userOrders = useMemo(() => {
+    if (!currentUser) return [];
+    return orders.filter(o => o.userPhone === currentUser.phone);
+  }, [orders, currentUser]);
 
   const handleSaveMenuItems = (newItems: MenuItem[]) => {
     setMenuItems(newItems);
@@ -162,6 +258,8 @@ export default function App() {
         cartCount={cartCount}
         onOpenOrderModal={() => setIsOrderModalOpen(true)}
         onOpenAdmin={() => setIsAdminOpen(true)}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        currentUser={currentUser}
       />
 
       {/* HERO SECTION 1 */}
@@ -207,6 +305,7 @@ export default function App() {
         onScrollToVisit={() => handleScrollToSection('visit-us')}
         onScrollToTop={() => handleScrollToSection('root')}
         onOpenOrderModal={() => setIsOrderModalOpen(true)}
+        onOpenAdmin={() => setIsAdminOpen(true)}
       />
 
       {/* INTERACTIVE EXPERIMENT ORDER DIALOGUE */}
@@ -219,6 +318,10 @@ export default function App() {
             cartQuantities={cartQuantities}
             onUpdateQuantity={handleUpdateQuantity}
             onClearCart={handleClearCart}
+            onPlaceOrder={handlePlaceOrder}
+            currentUser={currentUser}
+            onLogin={handleLogin}
+            orders={orders}
           />
         )}
       </AnimatePresence>
@@ -232,6 +335,22 @@ export default function App() {
             menuItems={menuItems}
             onSaveMenuItems={handleSaveMenuItems}
             onResetToDefaults={handleResetToDefaults}
+            orders={orders}
+            onUpdateOrderStatus={handleUpdateOrderStatus}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* GOURMET MEMBER PORTAL STATUS CHECK */}
+      <AnimatePresence>
+        {isProfileOpen && (
+          <UserProfileModal
+            isOpen={isProfileOpen}
+            onClose={() => setIsProfileOpen(false)}
+            currentUser={currentUser}
+            onLogin={handleLogin}
+            onLogout={handleLogout}
+            userOrders={orders.filter(o => o.userPhone === currentUser?.phone)}
           />
         )}
       </AnimatePresence>

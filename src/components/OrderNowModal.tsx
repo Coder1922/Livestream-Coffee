@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MenuItem } from '../types';
-import { X, Trash2, ShoppingBag, ShoppingCart, User, Phone, Check, Flame, Clock, Heart, Sparkles, MapPin, Star, MessageSquare } from 'lucide-react';
+import { MenuItem, Order, UserProfile } from '../types';
+import { X, Trash2, ShoppingBag, ShoppingCart, User, Phone, Mail, AlertCircle, Check, Flame, Clock, Heart, Sparkles, MapPin, Star, MessageSquare } from 'lucide-react';
 
 interface OrderNowModalProps {
   isOpen: boolean;
@@ -10,9 +10,13 @@ interface OrderNowModalProps {
   cartQuantities: Record<string, number>;
   onUpdateQuantity: (itemId: string, newQty: number) => void;
   onClearCart: () => void;
+  onPlaceOrder?: (order: Order) => void;
+  currentUser: UserProfile | null;
+  onLogin: (user: UserProfile) => void;
+  orders: Order[];
 }
 
-type OrderStage = 'form' | 'brewing' | 'complete';
+type OrderStage = 'form' | 'brewing' | 'complete' | 'cancelled';
 
 export default function OrderNowModal({
   isOpen,
@@ -20,9 +24,14 @@ export default function OrderNowModal({
   cartItems,
   cartQuantities,
   onUpdateQuantity,
-  onClearCart
+  onClearCart,
+  onPlaceOrder,
+  currentUser,
+  onLogin,
+  orders
 }: OrderNowModalProps) {
   const [stage, setStage] = useState<OrderStage>('form');
+  const [placedOrderId, setPlacedOrderId] = useState<string | null>(null);
   const [userName, setUserName] = useState('');
   const [userPhone, setUserPhone] = useState('');
   const [specialInstructions, setSpecialInstructions] = useState<Record<string, string>>({});
@@ -30,23 +39,39 @@ export default function OrderNowModal({
   const [activeStep, setActiveStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
-  // Auto progression for Brewing Simulator
+  // Authentication sub-states for OrderNowModal Checkout Sign-in/Register fallback
+  const [checkoutTab, setCheckoutTab] = useState<'login' | 'register'>('login');
+  const [authName, setAuthName] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
+
+  // Sychronize stage with the actual user order state driven by Admin panel actions
   useEffect(() => {
-    if (stage !== 'brewing') return;
+    if (!placedOrderId) return;
+    const activeOrder = orders.find(o => o.id === placedOrderId);
+    if (!activeOrder) return;
 
-    const interval = setInterval(() => {
-      setActiveStep((prev) => {
-        if (prev >= 3) {
-          clearInterval(interval);
-          setStage('complete');
-          return 3;
-        }
-        return prev + 1;
-      });
-    }, 4500); // 4.5 seconds per step
-
-    return () => clearInterval(interval);
-  }, [stage]);
+    if (activeOrder.status === 'Pending') {
+      setStage('brewing');
+      setActiveStep(0); // Dosing & Sourcing / review
+    } else if (activeOrder.status === 'Received') {
+      setStage('brewing');
+      setActiveStep(1); // Received
+    } else if (activeOrder.status === 'Brewing') {
+      setStage('brewing');
+      setActiveStep(2); // In progress
+    } else if (activeOrder.status === 'Ready') {
+      setStage('complete');
+      setActiveStep(3); // Pick up ready
+    } else if (activeOrder.status === 'Completed') {
+      setStage('complete');
+      setActiveStep(3);
+    } else if (activeOrder.status === 'Cancelled') {
+      setStage('cancelled');
+    }
+  }, [orders, placedOrderId]);
 
   if (!isOpen) return null;
 
@@ -60,22 +85,183 @@ export default function OrderNowModal({
     return acc + item.price * qty;
   }, 0);
 
+  // Auto-fill logged-in customer coordinates and carry forward details
+  useEffect(() => {
+    if (currentUser) {
+      setUserName(currentUser.name);
+      setUserPhone(currentUser.phone);
+    } else {
+      setUserName('');
+      setUserPhone('');
+    }
+  }, [currentUser]);
+
+  // Sync internal form states on load
+  useEffect(() => {
+    if (isOpen) {
+      setAuthError('');
+      setAuthSuccess('');
+    }
+  }, [isOpen]);
+
+  // Strict local validation rules
+  const getRegisteredUsers = (): UserProfile[] => {
+    const list = localStorage.getItem('LIVESTREAM_REGISTERED_USERS');
+    return list ? JSON.parse(list) : [];
+  };
+
+  const saveRegisteredUser = (user: UserProfile) => {
+    const users = getRegisteredUsers();
+    users.push(user);
+    localStorage.setItem('LIVESTREAM_REGISTERED_USERS', JSON.stringify(users));
+  };
+
+  const validateEmail = (val: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim());
+  };
+
+  const validatePhone = (val: string) => {
+    return /^[0-9]{10}$/.test(val);
+  };
+
+  const validateName = (val: string) => {
+    const trimmed = val.trim();
+    return trimmed.length >= 3 && /^[a-zA-Z\s.]+$/.test(trimmed);
+  };
+
+  // Real-time alphanumeric layout filters
+  const handleAuthPhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const cleaned = e.target.value.replace(/[^0-9]/g, '');
+    if (cleaned.length <= 10) {
+      setAuthPhone(cleaned);
+    }
+  };
+
+  const handleAuthNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const cleaned = e.target.value.replace(/[^a-zA-Z\s.]/g, '');
+    setAuthName(cleaned);
+  };
+
+  const handleCheckoutRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthSuccess('');
+
+    if (!validateName(authName)) {
+      setAuthError('Name must be at least 3 characters long and contain only letters/spaces.');
+      return;
+    }
+
+    if (!validatePhone(authPhone)) {
+      setAuthError('Mobile number must be exactly 10 digits and cannot contain letters/special characters.');
+      return;
+    }
+
+    if (!validateEmail(authEmail)) {
+      setAuthError('Please provide a valid email address.');
+      return;
+    }
+
+    const users = getRegisteredUsers();
+    const cleanPhone = authPhone.trim();
+    const exists = users.find(u => u.phone === cleanPhone || u.email.toLowerCase() === authEmail.toLowerCase().trim());
+    
+    if (exists) {
+      setAuthError('A user with this mobile number or email already exists. Try Logging in.');
+      return;
+    }
+
+    const newUser: UserProfile = {
+      id: `usr-${Date.now()}`,
+      name: authName.trim(),
+      phone: cleanPhone,
+      email: authEmail.toLowerCase().trim(),
+      loyaltyPoints: 50 // Welcome bonus
+    };
+
+    saveRegisteredUser(newUser);
+    onLogin(newUser);
+    setAuthSuccess('Registration successful! Click checkout to complete.');
+    setAuthName('');
+    setAuthPhone('');
+    setAuthEmail('');
+  };
+
+  const handleCheckoutLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthSuccess('');
+
+    if (!validatePhone(authPhone)) {
+      setAuthError('Mobile number must be exactly 10 digits.');
+      return;
+    }
+
+    const cleanPhone = authPhone.trim();
+    const users = getRegisteredUsers();
+    const userFound = users.find(u => u.phone === cleanPhone);
+
+    if (userFound) {
+      onLogin(userFound);
+      setAuthSuccess(`Welcome back, ${userFound.name}!`);
+      setAuthPhone('');
+    } else {
+      setAuthError('No profile found. Please Register below to create your account!');
+    }
+  };
+
   const handlePlaceOrder = (e: React.FormEvent) => {
     e.preventDefault();
     if (!userName || !userPhone || orderTotal === 0) return;
 
     setSubmitting(true);
+
+    const cleanPhone = userPhone.replace(/[\s-]/g, '');
+    const newOrder: Order = {
+      id: `ord-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      userName: userName.trim(),
+      userPhone: cleanPhone,
+      items: cartItems.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: cartQuantities[item.id] || 0,
+        image: item.image,
+        category: item.category,
+        specialInstructions: specialInstructions[item.id] || ''
+      })),
+      total: orderTotal,
+      status: 'Pending',
+      createdAt: new Date().toISOString(),
+      deliveryType: deliveryType
+    };
+
+    // Save and cache to local storage
+    try {
+      const saved = localStorage.getItem('LIVESTREAM_ORDERS');
+      const list = saved ? JSON.parse(saved) : [];
+      list.push(newOrder);
+      localStorage.setItem('LIVESTREAM_ORDERS', JSON.stringify(list));
+    } catch (err) {
+      console.error('Failed to append order record to localStorage catalog', err);
+    }
+
     // Mimic API delay
     setTimeout(() => {
       setSubmitting(false);
+      setPlacedOrderId(newOrder.id);
       setStage('brewing');
       setActiveStep(0);
+      if (onPlaceOrder) {
+        onPlaceOrder(newOrder);
+      }
     }, 1500);
   };
 
   const resetAll = () => {
     setStage('form');
     setActiveStep(0);
+    setPlacedOrderId(null);
     setSpecialInstructions({});
     onClearCart();
     onClose();
@@ -101,6 +287,7 @@ export default function OrderNowModal({
                 'Brewing Your Coffee'
               )}
               {stage === 'complete' && 'Order Ready For Pickup'}
+              {stage === 'cancelled' && 'Order Declined'}
             </h3>
           </div>
           <button
@@ -230,102 +417,238 @@ export default function OrderNowModal({
                       </span>
                     </div>
 
-                    {/* Input Contact form */}
-                    <form onSubmit={handlePlaceOrder} className="space-y-4 border-t border-brand-cream/10 pt-4">
-                      <h4 className="text-[10px] font-mono tracking-widest uppercase text-brand-gold mb-3">
-                        GUEST DETAILS
-                      </h4>
+                     {/* Authenticated Checkout Flow Selection */}
+                     {!currentUser ? (
+                       <div className="border-t border-brand-cream/10 pt-5 space-y-4">
+                         <div className="text-center space-y-1.5">
+                           <h4 className="text-xs font-mono tracking-widest uppercase text-brand-gold font-bold">
+                             🔒 MANDATORY MEMBER SIGN-IN
+                           </h4>
+                           <p className="text-[11px] text-[#a1a1a1] leading-relaxed font-manrope font-light max-w-sm mx-auto">
+                             To complete your Radisson lounge reservation or gourmet order, please authenticate or register your active profile below.
+                           </p>
+                         </div>
 
-                      <div>
-                        <label className="block text-[10px] font-mono tracking-wider text-[#a1a1a1] uppercase mb-1.5">
-                          Your Name
-                        </label>
-                        <div className="relative">
-                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-gold">
-                            <User className="w-4 h-4" />
-                          </span>
-                          <input
-                            type="text"
-                            required
-                            placeholder="e.g. Rohini Mehta"
-                            value={userName}
-                            onChange={(e) => setUserName(e.target.value)}
-                            className="w-full pl-10 pr-4 py-3 bg-[#181818] border border-brand-cream/15 text-brand-cream text-sm rounded-lg focus:outline-none focus:border-brand-gold font-manrope font-light transition-colors"
-                          />
-                        </div>
-                      </div>
+                         {/* Mini tabs */}
+                         <div className="grid grid-cols-2 p-1 bg-[#151515] rounded-lg border border-brand-cream/5 select-none">
+                           <button
+                             type="button"
+                             onClick={() => { setCheckoutTab('login'); setAuthError(''); setAuthSuccess(''); }}
+                             className={`py-1.5 rounded text-[10px] font-mono uppercase tracking-widest transition-all cursor-pointer ${
+                               checkoutTab === 'login' 
+                                 ? 'bg-brand-gold text-brand-bg font-bold shadow' 
+                                 : 'text-[#a1a1a1] hover:text-brand-cream'
+                             }`}
+                           >
+                             sign in
+                           </button>
+                           <button
+                             type="button"
+                             onClick={() => { setCheckoutTab('register'); setAuthError(''); setAuthSuccess(''); }}
+                             className={`py-1.5 rounded text-[10px] font-mono uppercase tracking-widest transition-all cursor-pointer ${
+                               checkoutTab === 'register' 
+                                 ? 'bg-brand-gold text-brand-bg font-bold shadow' 
+                                 : 'text-[#a1a1a1] hover:text-brand-cream'
+                             }`}
+                           >
+                             register
+                           </button>
+                         </div>
 
-                      <div>
-                        <label className="block text-[10px] font-mono tracking-wider text-[#a1a1a1] uppercase mb-1.5">
-                          Contact Phone Number
-                        </label>
-                        <div className="relative">
-                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-gold">
-                            <Phone className="w-4 h-4" />
-                          </span>
-                          <input
-                            type="tel"
-                            required
-                            placeholder="e.g. 091930 99994"
-                            value={userPhone}
-                            onChange={(e) => setUserPhone(e.target.value)}
-                            className="w-full pl-10 pr-4 py-3 bg-[#181818] border border-brand-cream/15 text-brand-cream text-sm rounded-lg focus:outline-none focus:border-brand-gold font-manrope font-light transition-colors font-mono"
-                          />
-                        </div>
-                      </div>
+                         {/* Status alert badges */}
+                         {authError && (
+                           <div className="p-3 bg-red-950/40 border border-red-500/20 text-red-300 text-[11px] rounded flex items-center gap-2 font-manrope">
+                             <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-400" />
+                             <span>{authError}</span>
+                           </div>
+                         )}
+                         {authSuccess && (
+                           <div className="p-3 bg-green-950/40 border border-green-500/20 text-green-300 text-[11px] rounded flex items-center gap-2 font-manrope">
+                             <Check className="w-3.5 h-3.5 shrink-0 text-green-400" />
+                             <span>{authSuccess}</span>
+                           </div>
+                         )}
 
-                      {/* Delivery Toggle selectors */}
-                      <div>
-                        <label className="block text-[10px] font-mono tracking-wider text-[#a1a1a1] uppercase mb-2">
-                          Pickup Strategy
-                        </label>
-                        <div className="grid grid-cols-2 gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setDeliveryType('pickup')}
-                            className={`py-3 rounded-lg border text-xs font-mono tracking-widest uppercase transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                              deliveryType === 'pickup'
-                                ? 'bg-brand-gold text-brand-bg border-brand-gold font-bold'
-                                : 'bg-[#181818] border-brand-cream/10 text-[#a1a1a1]'
-                            }`}
-                          >
-                            <MapPin className="w-4 h-4" />
-                            <span>Radisson Pickup</span>
-                          </button>
+                         {checkoutTab === 'login' ? (
+                           <form onSubmit={handleCheckoutLogin} className="space-y-3.5">
+                             <div>
+                               <label className="block text-[9px] font-mono uppercase tracking-widest text-brand-gold mb-1 font-semibold">
+                                 Contact Mobile Number
+                               </label>
+                               <div className="relative">
+                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">
+                                   <Phone className="w-3.5 h-3.5" />
+                                 </span>
+                                 <input
+                                   type="tel"
+                                   required
+                                   placeholder="e.g. 9876543210 (10 digits)"
+                                   value={authPhone}
+                                   onChange={handleAuthPhoneChange}
+                                   maxLength={10}
+                                   className="w-full pl-9 pr-3 py-2.5 bg-[#141414] border border-brand-cream/10 text-brand-cream text-xs rounded-lg focus:outline-none focus:border-brand-gold font-mono"
+                                 />
+                               </div>
+                             </div>
 
-                          <button
-                            type="button"
-                            onClick={() => setDeliveryType('delivery')}
-                            className={`py-3 rounded-lg border text-xs font-mono tracking-widest uppercase transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                              deliveryType === 'delivery'
-                                ? 'bg-brand-gold text-brand-bg border-brand-gold font-bold'
-                                : 'bg-[#181818] border-brand-cream/10 text-[#a1a1a1]'
-                            }`}
-                          >
-                            <ShoppingBag className="w-4 h-4" />
-                            <span>Room / Car Drop</span>
-                          </button>
-                        </div>
-                      </div>
+                             <button
+                               type="submit"
+                               className="w-full py-3 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg font-mono text-xs uppercase tracking-widest font-bold rounded-lg transition-colors cursor-pointer"
+                             >
+                               Authenticate Profile
+                             </button>
+                           </form>
+                         ) : (
+                           <form onSubmit={handleCheckoutRegister} className="space-y-3.5">
+                             <div>
+                               <label className="block text-[9px] font-mono uppercase tracking-widest text-brand-gold mb-1 font-semibold">
+                                 Full Legal Name
+                               </label>
+                               <div className="relative">
+                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">
+                                   <User className="w-3.5 h-3.5" />
+                                 </span>
+                                 <input
+                                   type="text"
+                                   required
+                                   placeholder="e.g. Rohini Mehta"
+                                   value={authName}
+                                   onChange={handleAuthNameChange}
+                                   className="w-full pl-9 pr-3 py-2.5 bg-[#141414] border border-brand-cream/10 text-brand-cream text-xs rounded-lg focus:outline-none focus:border-brand-gold font-manrope"
+                                 />
+                               </div>
+                             </div>
 
-                      <button
-                        type="submit"
-                        disabled={submitting}
-                        className="w-full py-4 mt-6 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg font-mono text-xs uppercase tracking-widest font-bold rounded-lg transition-colors flex items-center justify-center gap-3 shadow-xl cursor-pointer"
-                      >
-                        {submitting ? (
-                          <>
-                            <span className="w-4 h-4 border-2 border-brand-bg border-t-transparent rounded-full animate-spin" />
-                            <span>PROCESSING SECURE ORDER...</span>
-                          </>
-                        ) : (
-                          <>
-                            <ShoppingCart className="w-4 h-4" />
-                            <span>Place Simulated Order (₹{orderTotal})</span>
-                          </>
-                        )}
-                      </button>
-                    </form>
+                             <div>
+                               <label className="block text-[9px] font-mono uppercase tracking-widest text-brand-gold mb-1 font-semibold">
+                                 Contact Mobile Number
+                               </label>
+                               <div className="relative">
+                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">
+                                   <Phone className="w-3.5 h-3.5" />
+                                 </span>
+                                 <input
+                                   type="tel"
+                                   required
+                                   placeholder="e.g. 9876543210 (used for validation)"
+                                   value={authPhone}
+                                   onChange={handleAuthPhoneChange}
+                                   maxLength={10}
+                                   className="w-full pl-9 pr-3 py-2.5 bg-[#141414] border border-brand-cream/10 text-brand-cream text-xs rounded-lg focus:outline-none focus:border-brand-gold font-mono"
+                                 />
+                               </div>
+                             </div>
+
+                             <div>
+                               <label className="block text-[9px] font-mono uppercase tracking-widest text-brand-gold mb-1 font-semibold">
+                                 Email Address
+                               </label>
+                               <div className="relative">
+                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">
+                                   <Mail className="w-3.5 h-3.5" />
+                                 </span>
+                                 <input
+                                   type="email"
+                                   required
+                                   placeholder="e.g. rohini.mehta@gmail.com"
+                                   value={authEmail}
+                                   onChange={(e) => setAuthEmail(e.target.value)}
+                                   className="w-full pl-9 pr-3 py-2.5 bg-[#141414] border border-brand-cream/10 text-brand-cream text-xs rounded-lg focus:outline-none focus:border-brand-gold font-manrope"
+                                 />
+                               </div>
+                             </div>
+
+                             <button
+                               type="submit"
+                               className="w-full py-3 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg font-mono text-xs uppercase tracking-widest font-bold rounded-lg transition-colors cursor-pointer"
+                             >
+                               Complete & Authorize Checkout
+                             </button>
+                           </form>
+                         )}
+                       </div>
+                     ) : (
+                       <form onSubmit={handlePlaceOrder} className="space-y-4 border-t border-brand-cream/10 pt-4">
+                         {/* Carry-forward logged in segment */}
+                         <div className="p-3.5 rounded-xl bg-brand-gold/5 border border-brand-gold/20 flex items-center justify-between gap-4">
+                           <div className="space-y-0.5">
+                             <div className="flex items-center gap-1.5">
+                               <span className="inline-block px-1.5 py-0.5 rounded bg-brand-gold text-brand-bg font-mono text-[8px] font-bold uppercase tracking-wider">
+                                 verified gourmet profile
+                               </span>
+                             </div>
+                             <h5 className="text-sm font-serif font-bold text-brand-cream">
+                               {currentUser.name}
+                             </h5>
+                             <p className="text-[11px] text-[#a1a1a1] font-mono flex items-center gap-1">
+                               <Phone className="w-3 h-3 text-[#777777]" />
+                               {currentUser.phone}
+                             </p>
+                           </div>
+
+                           <div className="bg-black/30 border border-brand-gold/10 px-3 py-2 rounded text-center">
+                             <span className="block text-[11px] font-mono font-bold text-brand-gold">
+                               {currentUser.loyaltyPoints} PTS
+                             </span>
+                             <span className="text-[7px] text-[#777777] font-mono uppercase tracking-tight">
+                               Loyalty Score
+                             </span>
+                           </div>
+                         </div>
+
+                         {/* Delivery Toggle selectors */}
+                         <div>
+                           <label className="block text-[10px] font-mono tracking-wider text-[#a1a1a1] uppercase mb-2">
+                             Pickup Strategy
+                           </label>
+                           <div className="grid grid-cols-2 gap-3">
+                             <button
+                               type="button"
+                               onClick={() => setDeliveryType('pickup')}
+                               className={`py-3 rounded-lg border text-xs font-mono tracking-widest uppercase transition-colors flex items-center justify-center gap-2 cursor-pointer ${
+                                 deliveryType === 'pickup'
+                                   ? 'bg-brand-gold text-brand-bg border-brand-gold font-bold'
+                                   : 'bg-[#181818] border-brand-cream/10 text-[#a1a1a1]'
+                               }`}
+                             >
+                               <MapPin className="w-4 h-4" />
+                               <span>Radisson Pickup</span>
+                             </button>
+
+                             <button
+                               type="button"
+                               onClick={() => setDeliveryType('delivery')}
+                               className={`py-3 rounded-lg border text-xs font-mono tracking-widest uppercase transition-colors flex items-center justify-center gap-2 cursor-pointer ${
+                                 deliveryType === 'delivery'
+                                   ? 'bg-brand-gold text-brand-bg border-brand-gold font-bold'
+                                   : 'bg-[#181818] border-brand-cream/10 text-[#a1a1a1]'
+                               }`}
+                             >
+                               <ShoppingBag className="w-4 h-4" />
+                               <span>Room / Car Drop</span>
+                             </button>
+                           </div>
+                         </div>
+
+                         <button
+                           type="submit"
+                           disabled={submitting}
+                           className="w-full py-4 mt-6 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg font-mono text-xs uppercase tracking-widest font-bold rounded-lg transition-colors flex items-center justify-center gap-3 shadow-xl cursor-pointer"
+                         >
+                           {submitting ? (
+                             <>
+                               <span className="w-4 h-4 border-2 border-brand-bg border-t-transparent rounded-full animate-spin" />
+                               <span>PROCESSING GOURMET ORDER...</span>
+                             </>
+                           ) : (
+                             <>
+                               <ShoppingCart className="w-4 h-4" />
+                               <span>Confirm & Place Order (₹{orderTotal})</span>
+                             </>
+                           )}
+                         </button>
+                       </form>
+                     )}
                   </>
                 )}
               </motion.div>
@@ -496,6 +819,36 @@ export default function OrderNowModal({
                   {hasDrinks && hasFood ? 'Order Picked Up & Close' :
                    hasFood ? 'Meal Received & Close' :
                    'Drink Completed & Close'}
+                </button>
+              </motion.div>
+            )}
+
+            {/* STAGE 4: CANCELLED / DECLINED REVELATION CARD */}
+            {stage === 'cancelled' && (
+              <motion.div
+                key="cancelled"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="text-center py-8"
+              >
+                <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 text-red-400 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <X className="w-8 h-8" />
+                </div>
+
+                <h4 className="text-2xl font-serif text-brand-cream font-bold leading-tight mb-2">
+                  Reservation / Order Not Accepted
+                </h4>
+                
+                <p className="text-xs text-[#a1a1a1] max-w-sm mx-auto mb-8 leading-relaxed font-manrope font-light">
+                  Standard apologies, your requested menu selections could not be fulfilled at this time in the Park Inn lounge lobby. Please contact the front host or receptionist desk if you wish to adjust ingredients.
+                </p>
+
+                <button
+                  onClick={resetAll}
+                  className="w-full py-3.5 bg-[#202020] hover:bg-[#252525] border border-brand-cream/10 text-[#a1a1a1] hover:text-brand-cream font-mono text-xs uppercase tracking-widest font-bold rounded-lg transition-colors cursor-pointer"
+                >
+                  Exit Review Page
                 </button>
               </motion.div>
             )}

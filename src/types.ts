@@ -47,3 +47,35 @@ export interface Feature {
   description: string;
   iconName: string;
 }
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  loyaltyPoints: number;
+}
+
+export interface OrderItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  category: 'specialty' | 'frappe' | 'food';
+  specialInstructions?: string;
+  image: string;
+}
+
+export interface Order {
+  id: string;
+  userId?: string;
+  userName: string;
+  userPhone: string;
+  items: OrderItem[];
+  total: number;
+  deliveryType: 'pickup' | 'delivery';
+  status: 'Pending' | 'Received' | 'Brewing' | 'Ready' | 'Completed' | 'Cancelled';
+  createdAt: string;
+  specialInstructions?: Record<string, string>;
+}
+

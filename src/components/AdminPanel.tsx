@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MenuItem } from '../types';
+import { MenuItem, Order } from '../types';
 import { 
   X, Plus, Trash2, Edit2, Save, Upload, Image as ImageIcon, 
-  RotateCcw, Lock, Unlock, Search, Check, AlertCircle, Sparkles, Filter 
+  RotateCcw, Lock, Unlock, Search, Check, AlertCircle, Sparkles, Filter, 
+  ShoppingBag, Clock, User, Phone, MapPin, Flame 
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -12,6 +13,8 @@ interface AdminPanelProps {
   menuItems: MenuItem[];
   onSaveMenuItems: (items: MenuItem[]) => void;
   onResetToDefaults: () => void;
+  orders: Order[];
+  onUpdateOrderStatus: (id: string, status: Order['status']) => void;
 }
 
 // Preset High Definition Unsplash images for quick assignment
@@ -35,11 +38,18 @@ export default function AdminPanel({
   onClose, 
   menuItems, 
   onSaveMenuItems, 
-  onResetToDefaults 
+  onResetToDefaults,
+  orders,
+  onUpdateOrderStatus
 }: AdminPanelProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passcode, setPasscode] = useState('');
   const [authError, setAuthError] = useState('');
+
+  // Tab Switcher between Catalog editing & order logging
+  const [adminTab, setAdminTab] = useState<'orders' | 'catalog'>('orders');
+  const [orderQuery, setOrderQuery] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | Order['status']>('all');
 
   // Search & Filters inside Admin list
   const [searchQuery, setSearchQuery] = useState('');
@@ -222,6 +232,27 @@ export default function AdminPanel({
     return matchesSearch && matchesCategory;
   });
 
+  // Calculate statistics for bento row cards
+  const stats = useMemo(() => {
+    const total = orders.length;
+    const pending = orders.filter(o => o.status === 'Pending').length;
+    const active = orders.filter(o => ['Received', 'Brewing', 'Ready'].includes(o.status)).length;
+    const completed = orders.filter(o => o.status === 'Completed').length;
+    const totalRevenue = orders.filter(o => o.status === 'Completed').reduce((sum, o) => sum + o.total, 0);
+    return { total, pending, active, completed, totalRevenue };
+  }, [orders]);
+
+  // Filter orders in the tracking screen
+  const filteredOrders = useMemo(() => {
+    return [...orders].reverse().filter(o => {
+      const matchSearch = o.userName.toLowerCase().includes(orderQuery.toLowerCase()) ||
+        o.userPhone.includes(orderQuery) ||
+        o.id.toLowerCase().includes(orderQuery.toLowerCase());
+      const matchStatus = orderStatusFilter === 'all' || o.status === orderStatusFilter;
+      return matchSearch && matchStatus;
+    });
+  }, [orders, orderQuery, orderStatusFilter]);
+
   return (
     <div className="fixed inset-0 z-[200] overflow-y-auto bg-brand-bg/95 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-[#0b0b0b] border-2 border-brand-gold/30 w-full max-w-5xl rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh] relative">
@@ -327,11 +358,332 @@ export default function AdminPanel({
                 </button>
               </div>
 
+              {/* Dynamic Admin Tabs Control row */}
+              <div className="flex border-b border-brand-cream/10 select-none pb-1 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAdminTab('orders')}
+                  className={`px-5 py-3 text-xs font-mono uppercase tracking-widest font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+                    adminTab === 'orders'
+                      ? 'border-brand-gold text-brand-gold'
+                      : 'border-transparent text-brand-cream/65 hover:text-brand-cream'
+                  }`}
+                >
+                  <Clock className="w-4 h-4 shrink-0" />
+                  <span>Live Orders Monitor ({orders.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminTab('catalog')}
+                  className={`px-5 py-3 text-xs font-mono uppercase tracking-widest font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+                    adminTab === 'catalog'
+                      ? 'border-brand-gold text-brand-gold'
+                      : 'border-transparent text-brand-cream/65 hover:text-brand-cream'
+                  }`}
+                >
+                  <Plus className="w-4 h-4 shrink-0" />
+                  <span>Menu Catalog Editor ({menuItems.length})</span>
+                </button>
+              </div>
+
               {/* Anchor point for screen tracking */}
               <div id="admin-form-anchor" />
 
-              {/* SECTION: ADD OR EDIT FORM */}
-              <div className="p-6 rounded-2xl bg-[#111111] border border-brand-cream/5 shadow-2xl relative overflow-hidden">
+              {adminTab === 'orders' ? (
+                <div className="space-y-6">
+                  {/* Statistics Panel Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-none">
+                    <div className="p-4 rounded-xl bg-[#111111] border border-brand-cream/5 text-left">
+                      <span className="block text-[9px] font-mono text-[#a1a1a1] uppercase tracking-wider">
+                        Total Completed Revenue
+                      </span>
+                      <span className="text-xl font-serif font-bold text-brand-gold">
+                        ₹{stats.totalRevenue}
+                      </span>
+                    </div>
+                    <div className="p-4 rounded-xl bg-[#111111] border border-brand-cream/5 text-left">
+                      <span className="block text-[9px] font-mono text-[#a1a1a1] uppercase tracking-wider">
+                        Active Prep Queue
+                      </span>
+                      <span className="text-xl font-serif font-bold text-brand-cream">
+                        {stats.active} orders
+                      </span>
+                    </div>
+                    <div className="p-4 rounded-xl bg-[#111111] border border-brand-cream/5 text-left">
+                      <span className="block text-[9px] font-mono text-[#a1a1a1] uppercase tracking-wider">
+                        Awaiting Approval
+                      </span>
+                      <span className="text-xl font-serif font-bold text-amber-500">
+                        {stats.pending} orders
+                      </span>
+                    </div>
+                    <div className="p-4 rounded-xl bg-[#111111] border border-brand-cream/5 text-left">
+                      <span className="block text-[9px] font-mono text-[#a1a1a1] uppercase tracking-wider">
+                        Total Submissions
+                      </span>
+                      <span className="text-xl font-serif font-bold text-[#a1a1a1]">
+                        {stats.total}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Orders Filter Control inputs */}
+                  <div className="p-5 rounded-xl bg-[#111111] border border-brand-cream/5 flex flex-col md:flex-row gap-3 items-center">
+                    {/* Search Bar query input */}
+                    <div className="w-full md:flex-1 relative">
+                      <Search className="w-4 h-4 text-brand-gold absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Search by Guest Name, Phone number or Order ID..."
+                        value={orderQuery}
+                        onChange={(e) => setOrderQuery(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 bg-[#171717] border border-brand-cream/10 text-brand-cream text-xs rounded-lg focus:outline-none focus:border-brand-gold transition-all"
+                      />
+                    </div>
+
+                    {/* Status filter selection pills */}
+                    <div className="flex gap-1.5 w-full md:w-auto overflow-x-auto shrink-0 select-none pb-1 md:pb-0 font-mono text-[9px]">
+                      {(['all', 'Pending', 'Received', 'Brewing', 'Ready', 'Completed', 'Cancelled'] as const).map((st) => (
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() => setOrderStatusFilter(st)}
+                          className={`px-3 py-1.5 rounded border transition-all cursor-pointer ${
+                            orderStatusFilter === st
+                              ? 'bg-brand-gold border-brand-gold text-brand-bg font-bold'
+                              : 'bg-[#171717] border-brand-cream/10 text-brand-cream/70 hover:border-brand-gold/50'
+                          }`}
+                        >
+                          {st}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Order Items List Frame */}
+                  <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                    {filteredOrders.length > 0 ? (
+                      filteredOrders.map((order) => {
+                        // Check if user is a member
+                        let isMember = false;
+                        let userDetails = null;
+                        try {
+                          const registered = localStorage.getItem('LIVESTREAM_REGISTERED_USERS');
+                          const users = registered ? JSON.parse(registered) : [];
+                          userDetails = users.find((u: any) => u.phone === order.userPhone);
+                          if (userDetails) isMember = true;
+                        } catch (e) {
+                          console.error(e);
+                        }
+
+                        return (
+                          <div 
+                            key={order.id}
+                            className="p-5 rounded-2xl bg-[#111111] border border-brand-cream/5 hover:border-brand-gold/15 transition-all text-left flex flex-col md:flex-row justify-between gap-6"
+                          >
+                            {/* Column 1: Order Meta & User Card */}
+                            <div className="space-y-2.5 max-w-sm flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-mono text-brand-gold bg-brand-gold/15 px-2 py-0.5 rounded border border-brand-gold/10 font-bold uppercase tracking-wider">
+                                  ORDER ID: {order.id.slice(-6).toUpperCase()}
+                                </span>
+                                
+                                {isMember ? (
+                                  <span className="text-[9px] font-mono text-cyan-400 bg-cyan-400/10 px-2 py-0.5 rounded border border-cyan-400/15 font-bold uppercase tracking-widest animate-pulse">
+                                    ★ Registered Member ({userDetails.loyaltyPoints} PTS)
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-mono text-[#a1a1a1] bg-[#1a1a1a] px-2 py-0.5 rounded border border-[#2a2a2a] uppercase tracking-wide">
+                                    Guest Checkout
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="space-y-0.5 font-manrope">
+                                <h4 className="text-base font-serif font-bold text-brand-cream flex items-center gap-1.5">
+                                  <User className="w-4 h-4 text-brand-gold" />
+                                  {order.userName}
+                                </h4>
+                                <p className="text-xs text-[#a1a1a1] font-mono flex items-center gap-1.5">
+                                  <Phone className="w-3.5 h-3.5 text-neutral-600" />
+                                  {order.userPhone}
+                                </p>
+                                {isMember && (
+                                  <p className="text-[11px] text-[#777777] font-manrope font-light">
+                                    Email: {userDetails.email}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="text-[10px] font-mono text-[#666666] pt-1 border-t border-brand-cream/5">
+                                Placed: {new Date(order.createdAt).toLocaleString()}
+                              </div>
+                            </div>
+
+                            {/* Column 2: Order Products List details */}
+                            <div className="flex-grow space-y-2 max-w-md border-t md:border-t-0 md:border-l border-brand-cream/5 pt-4 md:pt-0 md:pl-5">
+                              <h5 className="text-[10px] font-mono uppercase tracking-widest text-brand-gold font-bold mb-1.5 font-sans">
+                                Cart Contents & Instruction set
+                              </h5>
+                              <div className="space-y-2.5">
+                                {order.items.map((it) => (
+                                  <div key={it.id} className="text-xs font-manrope space-y-0.5">
+                                    <div className="flex justify-between font-light text-brand-cream/90">
+                                      <span>
+                                        {it.quantity}x <strong className="font-semibold text-brand-cream">{it.name}</strong> 
+                                        <span className="text-[9px] text-[#666666] uppercase tracking-wider font-mono ml-2">
+                                          ({it.category})
+                                        </span>
+                                      </span>
+                                      <span className="font-mono text-[11px] text-[#a1a1a1]">
+                                        ₹{it.price * it.quantity}
+                                      </span>
+                                    </div>
+                                    
+                                    {/* item instruction check */}
+                                    {it.specialInstructions && (
+                                      <div className="text-[10px] text-brand-gold font-mono italic pl-4 flex items-center gap-1 border-l border-brand-gold/20">
+                                        <span>" {it.specialInstructions} "</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="pt-3 border-t border-brand-cream/5 flex justify-between items-center text-xs">
+                                <span className="flex items-center gap-1.5 text-[10px] font-mono uppercase text-[#a1a1a1]">
+                                  {order.deliveryType === 'pickup' ? (
+                                    <><MapPin className="w-3.5 h-3.5 text-brand-gold" /> Radisson Lobby Pickup</>
+                                  ) : (
+                                    <><ShoppingBag className="w-3.5 h-3.5 text-brand-gold" /> Room/Car Handover</>
+                                  )}
+                                </span>
+                                <span className="font-mono font-bold text-brand-gold text-sm">
+                                  Collect Total: ₹{order.total}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Column 3: Active Status Changer controls */}
+                            <div className="shrink-0 min-w-[200px] border-t md:border-t-0 md:border-l border-brand-cream/5 pt-4 md:pt-0 md:pl-5 flex flex-col justify-between">
+                              <div className="space-y-1 text-right md:text-left mb-3">
+                                <span className="block text-[10px] font-mono text-[#a1a1a1] uppercase tracking-wider">
+                                  Current Preparation State
+                                </span>
+                                
+                                {/* Styled Dynamic Status Badge */}
+                                {order.status === 'Pending' && (
+                                  <span className="inline-block px-2.5 py-1 text-[10px] font-mono uppercase font-bold tracking-wider text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-md font-sans">
+                                    Awaiting Check
+                                  </span>
+                                )}
+                                {order.status === 'Received' && (
+                                  <span className="inline-block px-2.5 py-1 text-[10px] font-mono uppercase font-bold tracking-wider text-blue-400 bg-blue-400/10 border border-blue-400/20 rounded-md animate-pulse font-sans">
+                                    Lobby Received
+                                  </span>
+                                )}
+                                {order.status === 'Brewing' && (
+                                  <span className="inline-block px-2.5 py-1 text-[10px] font-mono uppercase font-bold tracking-wider text-brand-gold bg-brand-gold/15 border border-brand-gold/30 rounded-md flex items-center gap-1.5 font-sans">
+                                    <Flame className="w-3 h-3 text-brand-gold animate-bounce" />
+                                    <span>Brewing & Baking</span>
+                                  </span>
+                                )}
+                                {order.status === 'Ready' && (
+                                  <span className="inline-block px-2.5 py-1 text-[10px] font-mono uppercase font-bold tracking-wider text-green-400 bg-green-400/10 border border-green-400/20 rounded-md animate-bounce font-sans">
+                                    Ready at Counter
+                                  </span>
+                                )}
+                                {order.status === 'Completed' && (
+                                  <span className="inline-block px-2.5 py-1 text-[10px] font-mono uppercase font-bold tracking-wider text-neutral-400 bg-neutral-900 border border-neutral-800 rounded-md font-sans">
+                                    Completed
+                                  </span>
+                                )}
+                                {order.status === 'Cancelled' && (
+                                  <span className="inline-block px-2.5 py-1 text-[10px] font-mono uppercase font-bold tracking-wider text-red-400 bg-red-955/20 border border-red-900/30 rounded-md font-sans">
+                                    Cancelled
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Status Advancer Controller buttons row */}
+                              <div className="space-y-1.5">
+                                <span className="block text-[9px] font-mono text-[#a1a1a1] uppercase tracking-wider text-left">
+                                  Advance State Node
+                                </span>
+                                
+                                {order.status === 'Pending' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateOrderStatus(order.id, 'Received')}
+                                    className="w-full py-2 bg-blue-950/20 border border-blue-500/20 text-blue-300 hover:bg-blue-900 text-[10px] font-mono uppercase font-bold rounded-lg transition-transform cursor-pointer block"
+                                  >
+                                    Approve & Receive
+                                  </button>
+                                )}
+
+                                {order.status === 'Received' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateOrderStatus(order.id, 'Brewing')}
+                                    className="w-full py-2 bg-brand-brown/20 border border-brand-gold/30 text-brand-gold hover:bg-brand-brown/50 text-[10px] font-mono uppercase font-bold rounded-lg transition-transform cursor-pointer flex items-center justify-center gap-1 font-sans"
+                                  >
+                                    <Flame className="w-3.5 h-3.5 animate-pulse" />
+                                    <span>Start Brewing</span>
+                                  </button>
+                                )}
+
+                                {order.status === 'Brewing' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateOrderStatus(order.id, 'Ready')}
+                                    className="w-full py-2 bg-green-950/20 border border-green-500/25 text-green-400 hover:bg-green-900/50 text-[10px] font-mono uppercase font-bold rounded-lg transition-transform cursor-pointer block text-center"
+                                  >
+                                    Mark Ready for Pickup
+                                  </button>
+                                )}
+
+                                {order.status === 'Ready' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateOrderStatus(order.id, 'Completed')}
+                                    className="w-full py-2 bg-brand-gold hover:bg-brand-gold/90 text-brand-bg text-[10px] font-mono uppercase font-extrabold tracking-wider rounded-lg transition-transform cursor-pointer block text-center shadow-lg"
+                                  >
+                                    Settle Handover (Award Pts)
+                                  </button>
+                                )}
+
+                                {/* Cancel Button Override */}
+                                {['Pending', 'Received', 'Brewing', 'Ready'].includes(order.status) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm('Are you sure you want to cancel / decline this order?')) {
+                                        onUpdateOrderStatus(order.id, 'Cancelled');
+                                      }
+                                    }}
+                                    className="w-full py-1.5 border border-red-950/80 hover:bg-red-950/40 text-red-400 text-[9px] font-mono uppercase rounded-lg transition-all cursor-pointer block text-center"
+                                  >
+                                    Decline / Cancel Order
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="text-center py-12 border border-dashed border-brand-cream/10 rounded-xl bg-neutral-950">
+                        <p className="text-xs font-mono text-[#666666]">
+                          No live order records matches your monitor filters.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* SECTION: ADD OR EDIT FORM */}
+                  <div className="p-6 rounded-2xl bg-[#111111] border border-brand-cream/5 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 rounded-full blur-2xl pointer-events-none" />
                 
                 <div className="flex items-center gap-2 border-b border-brand-cream/10 pb-4 mb-6">
@@ -687,6 +1039,9 @@ export default function AdminPanel({
                   )}
                 </div>
               </div>
+
+                </>
+              )}
 
             </div>
           )}
